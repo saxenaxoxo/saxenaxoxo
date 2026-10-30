@@ -1,0 +1,49 @@
+name: Profile activity
+
+# Rebuilds activity.svg from public GitHub data once a day and publishes it as the
+# only commit on the orphan `output` branch, so main's history never changes.
+
+on:
+  schedule:
+    - cron: '30 0 * * *' # 06:00 in Bengaluru
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: profile-activity
+  cancel-in-progress: false
+
+jobs:
+  activity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build activity card
+        run: node .github/scripts/activity.mjs out
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to the output branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git fetch --quiet --depth=1 origin output 2>/dev/null \
+            && git show origin/output:stats.json > previous.json 2>/dev/null \
+            && cmp -s previous.json out/stats.json; then
+            echo "Numbers unchanged, nothing to publish."
+            exit 0
+          fi
+          cd out
+          git init --quiet -b output
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add activity.svg stats.json
+          git commit --quiet -m "Update activity card"
+          git push --force --quiet "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" output
